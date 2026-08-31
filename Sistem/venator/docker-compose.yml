@@ -1,0 +1,37 @@
+# Sobe o backend do Venator e o n8n juntos, numa VPS por exemplo.
+# O frontend NÃO entra aqui de propósito: é um app estático (Vite) e fica
+# mais simples/barato hospedar separado em Vercel ou Netlify — ver DEPLOY.md.
+#
+# Uso:
+#   cp backend/.env.example backend/.env   # preencha os valores
+#   docker compose up -d --build
+
+services:
+  backend:
+    build: ./backend
+    container_name: venator-backend
+    restart: unless-stopped
+    ports:
+      - "3333:3333"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - venator_backend_data:/app/data
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: venator-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      - GENERIC_TIMEZONE=America/Sao_Paulo
+    volumes:
+      - venator_n8n_data:/home/node/.n8n
+
+volumes:
+  venator_backend_data:
+  venator_n8n_data:

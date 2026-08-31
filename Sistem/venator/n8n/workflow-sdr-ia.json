@@ -1,0 +1,380 @@
+{
+  "name": "Venator - SDR de IA (WhatsApp)",
+  "nodes": [
+    {
+      "id": "wh-verify",
+      "name": "Webhook - Verificação Meta (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1120, 40],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "whatsapp-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "wh-verify-check",
+      "name": "Checar hub.verify_token",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-880, 40],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{$json.query[\"hub.verify_token\"]}}",
+              "rightValue": "COLOQUE_AQUI_O_WHATSAPP_VERIFY_TOKEN",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "wh-verify-ok",
+      "name": "Responder challenge (OK)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-640, -60],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{$json.query[\"hub.challenge\"]}}",
+        "options": {}
+      }
+    },
+    {
+      "id": "wh-verify-fail",
+      "name": "Responder 403 (token errado)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-640, 140],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Forbidden",
+        "options": { "responseCode": 403 }
+      }
+    },
+    {
+      "id": "wh-message",
+      "name": "Webhook - Mensagem WhatsApp (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1120, 320],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "wh-ack",
+      "name": "Responder 200 imediatamente",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [-880, 320],
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "EVENT_RECEIVED",
+        "options": {}
+      }
+    },
+    {
+      "id": "extrair-msg",
+      "name": "Extrair telefone, texto e nome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-640, 320],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Extrai os dados da mensagem recebida no formato do WhatsApp Business Platform (Meta).\n// Referência: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples\nconst body = $input.item.json.body || $input.item.json;\nconst change = body?.entry?.[0]?.changes?.[0]?.value;\nconst mensagem = change?.messages?.[0];\n\nif (!mensagem) {\n  // Evento sem mensagem de texto (ex.: confirmação de leitura/entrega) — ignora.\n  return { json: { ignorar: true } };\n}\n\nconst contatoMeta = change?.contacts?.[0];\n\nreturn {\n  json: {\n    ignorar: false,\n    telefone: mensagem.from,\n    texto: mensagem.text?.body || \"\",\n    nome: contatoMeta?.profile?.name || mensagem.from\n  }\n};"
+      }
+    },
+    {
+      "id": "tem-mensagem",
+      "name": "Tem mensagem de texto?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-400, 320],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{$json.ignorar}}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "buscar-contexto",
+      "name": "Buscar contexto no CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-160, 260],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:3333/api/n8n/context/{{encodeURIComponent($json.telefone)}}?nome={{encodeURIComponent($json.nome)}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-n8n-key", "value": "COLOQUE_AQUI_O_N8N_SHARED_KEY" }]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "buscar-kb",
+      "name": "Buscar base de conhecimento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [80, 260],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://localhost:3333/api/n8n/knowledge-base?query={{encodeURIComponent($('Extrair telefone, texto e nome').item.json.texto)}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-n8n-key", "value": "COLOQUE_AQUI_O_N8N_SHARED_KEY" }]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "montar-prompt",
+      "name": "Montar mensagens para a IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [320, 260],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const contexto = $('Buscar contexto no CRM').item.json;\nconst kb = $('Buscar base de conhecimento').item.json;\nconst texto = $('Extrair telefone, texto e nome').item.json.texto;\n\nconst PROMPT_SDR = `Você é um SDR (Sales Development Representative) atendendo leads pelo WhatsApp em nome da empresa.\nQualifique o interesse do lead com perguntas curtas sobre necessidade, prazo e orçamento, de forma cordial e direta.\nVocê PODE apresentar informações de produto/preço usando a base de conhecimento abaixo, e fazer follow-up quando o lead sumir.\nNÃO feche a venda nem negocie condições finais — isso é sempre feito por um vendedor humano assim que o lead virar oportunidade quente.\nResponda em português do Brasil, no máximo 3 frases.\nSua saída deve ser SOMENTE um objeto JSON, sem texto fora dele, no formato exato:\n{\"resposta\": \"mensagem a enviar ao lead\", \"qualificado\": true ou false, \"quer_comprar\": true ou false, \"resumo_memoria\": \"resumo atualizado e curto do que já se sabe sobre este lead\"}`;\n\nconst blocoKb = (kb || []).map((a) => `# ${a.titulo}\\n${a.conteudo}`).join(\"\\n\\n\");\nconst memoriaAtual = contexto.memoria?.resumo || \"(nenhuma informação registrada ainda)\";\n\nconst historico = (contexto.mensagensRecentes || [])\n  .filter((m) => m.tipo === \"texto\")\n  .map((m) => ({ role: m.origem === \"lead\" ? \"user\" : \"assistant\", content: m.texto }));\n\nconst mensagens = [\n  { role: \"system\", content: `${PROMPT_SDR}\\n\\nMemória sobre este lead:\\n${memoriaAtual}\\n\\nBase de conhecimento relevante:\\n${blocoKb}` },\n  ...historico,\n  { role: \"user\", content: texto }\n];\n\nreturn { json: { mensagens, contatoId: contexto.contato.id, telefone: contexto.contato.telefone, textoRecebido: texto } };"
+      }
+    },
+    {
+      "id": "chamar-openai",
+      "name": "Chamar OpenAI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [560, 260],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "=Bearer {{$credentials.openAiApi ? '' : 'COLOQUE_A_CREDENCIAL_OPENAI'}}" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"gpt-4o-mini\", response_format: { type: \"json_object\" }, messages: $json.mensagens }) }}",
+        "options": {}
+      },
+      "notes": "Prefira usar uma credencial 'Header Auth' ou a credencial nativa de OpenAI do n8n em vez de colar a chave direto no node."
+    },
+    {
+      "id": "interpretar-ia",
+      "name": "Interpretar resposta da IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 260],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const anterior = $('Montar mensagens para a IA').item.json;\nconst bruto = $json.choices?.[0]?.message?.content || \"{}\";\nlet saida;\ntry {\n  saida = JSON.parse(bruto);\n} catch (e) {\n  saida = { resposta: \"Desculpe, tive um problema para responder agora. Um de nossos vendedores vai falar com você em breve.\", qualificado: false, quer_comprar: false, resumo_memoria: \"\" };\n}\nreturn {\n  json: {\n    ...anterior,\n    resposta: saida.resposta,\n    qualificado: !!saida.qualificado,\n    querComprar: !!saida.quer_comprar,\n    resumoMemoria: saida.resumo_memoria || \"\"\n  }\n};"
+      }
+    },
+    {
+      "id": "salvar-msg-lead",
+      "name": "Salvar mensagem do lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1040, 140],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3333/api/n8n/message",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-n8n-key", "value": "COLOQUE_AQUI_O_N8N_SHARED_KEY" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contatoId: $json.contatoId, origem: \"lead\", texto: $json.textoRecebido }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "salvar-msg-ia",
+      "name": "Salvar resposta da IA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1040, 260],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3333/api/n8n/message",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-n8n-key", "value": "COLOQUE_AQUI_O_N8N_SHARED_KEY" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contatoId: $json.contatoId, origem: \"ia\", texto: $json.resposta }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "atualizar-memoria",
+      "name": "Atualizar memória",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1040, 380],
+      "parameters": {
+        "method": "PATCH",
+        "url": "http://localhost:3333/api/n8n/memory",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-n8n-key", "value": "COLOQUE_AQUI_O_N8N_SHARED_KEY" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contatoId: $json.contatoId, resumo: $json.resumoMemoria }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "lead-qualificado",
+      "name": "Lead qualificado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1280, 260],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{$json.qualificado}}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "mover-estagio",
+      "name": "Mover para Interessado/Negociação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 160],
+      "parameters": {
+        "method": "PATCH",
+        "url": "http://localhost:3333/api/n8n/estagio",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-n8n-key", "value": "COLOQUE_AQUI_O_N8N_SHARED_KEY" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contatoId: $json.contatoId, estagio: $json.querComprar ? \"Negociação\" : \"Interessado\" }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "notificar-vendedor",
+      "name": "Notificar vendedor (lead quente)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 160],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3333/api/n8n/lead-quente",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "x-n8n-key", "value": "COLOQUE_AQUI_O_N8N_SHARED_KEY" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contatoId: $json.contatoId, motivo: $json.querComprar ? \"Intenção de compra identificada pela IA\" : \"Lead qualificado pela IA\" }) }}",
+        "options": {}
+      },
+      "notes": "Troque/complemente esta chamada por um node de Slack/E-mail para avisar o vendedor em tempo real, além de registrar no backend."
+    },
+    {
+      "id": "enviar-whatsapp",
+      "name": "Enviar resposta no WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 260],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v20.0/COLOQUE_AQUI_O_PHONE_NUMBER_ID/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Authorization", "value": "Bearer COLOQUE_AQUI_O_WHATSAPP_TOKEN" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: \"whatsapp\", to: $json.telefone, type: \"text\", text: { body: $json.resposta } }) }}",
+        "options": {}
+      },
+      "notes": "Prefira mover Authorization para uma credencial 'Header Auth' do n8n em vez de colar o token direto aqui."
+    }
+  ],
+  "connections": {
+    "Webhook - Verificação Meta (GET)": {
+      "main": [[{ "node": "Checar hub.verify_token", "type": "main", "index": 0 }]]
+    },
+    "Checar hub.verify_token": {
+      "main": [
+        [{ "node": "Responder challenge (OK)", "type": "main", "index": 0 }],
+        [{ "node": "Responder 403 (token errado)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Webhook - Mensagem WhatsApp (POST)": {
+      "main": [[{ "node": "Responder 200 imediatamente", "type": "main", "index": 0 }, { "node": "Extrair telefone, texto e nome", "type": "main", "index": 0 }]]
+    },
+    "Extrair telefone, texto e nome": {
+      "main": [[{ "node": "Tem mensagem de texto?", "type": "main", "index": 0 }]]
+    },
+    "Tem mensagem de texto?": {
+      "main": [
+        [
+          { "node": "Buscar contexto no CRM", "type": "main", "index": 0 },
+          { "node": "Buscar base de conhecimento", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Buscar contexto no CRM": {
+      "main": [[{ "node": "Montar mensagens para a IA", "type": "main", "index": 0 }]]
+    },
+    "Buscar base de conhecimento": {
+      "main": [[{ "node": "Montar mensagens para a IA", "type": "main", "index": 0 }]]
+    },
+    "Montar mensagens para a IA": {
+      "main": [[{ "node": "Chamar OpenAI", "type": "main", "index": 0 }]]
+    },
+    "Chamar OpenAI": {
+      "main": [[{ "node": "Interpretar resposta da IA", "type": "main", "index": 0 }]]
+    },
+    "Interpretar resposta da IA": {
+      "main": [
+        [
+          { "node": "Salvar mensagem do lead", "type": "main", "index": 0 },
+          { "node": "Salvar resposta da IA", "type": "main", "index": 0 },
+          { "node": "Atualizar memória", "type": "main", "index": 0 },
+          { "node": "Lead qualificado?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Lead qualificado?": {
+      "main": [
+        [{ "node": "Mover para Interessado/Negociação", "type": "main", "index": 0 }],
+        [{ "node": "Enviar resposta no WhatsApp", "type": "main", "index": 0 }]
+      ]
+    },
+    "Mover para Interessado/Negociação": {
+      "main": [[{ "node": "Notificar vendedor (lead quente)", "type": "main", "index": 0 }]]
+    },
+    "Notificar vendedor (lead quente)": {
+      "main": [[{ "node": "Enviar resposta no WhatsApp", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}
