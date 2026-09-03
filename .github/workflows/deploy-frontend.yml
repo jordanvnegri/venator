@@ -25,8 +25,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-node-version: 22
-
+          node-version: 22
 
       - name: Instalar dependências
         working-directory: frontend
@@ -34,9 +33,6 @@ node-version: 22
 
       - name: Build
         working-directory: frontend
-        # Defina VITE_API_BASE_URL como um "secret" do repositório
-        # (Settings → Secrets and variables → Actions) apontando para a URL
-        # pública do seu backend (Oracle Cloud / Render).
         env:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
         run: npm run build
@@ -54,4 +50,3 @@ node-version: 22
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
-corrigido workflow
