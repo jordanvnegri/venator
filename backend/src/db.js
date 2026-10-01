@@ -42,14 +42,12 @@ db.defaults({
   baseConhecimento: [
     {
       id: uuid(),
-      titulo: "Planos e preços",
-      conteudo:
-        "Descreva aqui os planos, faixas de preço e condições comerciais que a IA pode citar durante a qualificação.",
-    },
-    {
-      id: uuid(),
-      titulo: "Perguntas frequentes",
-      conteudo: "Adicione respostas para as dúvidas mais comuns dos leads antes de colocar a IA em produção.",
+      nome: "Exemplo de produto",
+      descricao: "Substitua por um produto real, ou apague — isso é só um exemplo de como o cadastro fica.",
+      material: "",
+      preco: "",
+      precoAtacado: "",
+      quantidadeMinima: "",
     },
   ],
   chamadas: [], // { id, colaboradorNome, contatoNome, dataHora, duracao, arquivoUrl }
