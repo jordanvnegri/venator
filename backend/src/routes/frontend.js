@@ -151,17 +151,39 @@ router.post("/chamadas", (req, res) => {
   res.status(201).json(chamada);
 });
 
-// ---------------- BASE DE CONHECIMENTO ----------------
+// ---------------- BASE DE CONHECIMENTO (produtos que a IA usa para atender) ----------------
 router.get("/base-conhecimento", (req, res) => {
   res.json(db.get("baseConhecimento").value());
 });
 
 router.post("/base-conhecimento", apenasMaster, (req, res) => {
-  const { titulo, conteudo } = req.body || {};
-  if (!titulo || !conteudo) return res.status(400).json({ erro: "Título e conteúdo são obrigatórios." });
-  const artigo = { id: uuid(), titulo, conteudo };
+  const { nome, descricao, material, preco, precoAtacado, quantidadeMinima } = req.body || {};
+  if (!nome || !nome.trim()) return res.status(400).json({ erro: "Nome é obrigatório." });
+  const artigo = {
+    id: uuid(),
+    nome,
+    descricao: descricao || "",
+    material: material || "",
+    preco: preco || "",
+    precoAtacado: precoAtacado || "",
+    quantidadeMinima: quantidadeMinima || "",
+  };
   db.get("baseConhecimento").push(artigo).write();
   res.status(201).json(artigo);
+});
+
+router.patch("/base-conhecimento/:id", apenasMaster, (req, res) => {
+  const alvo = db.get("baseConhecimento").find({ id: req.params.id });
+  if (!alvo.value()) return res.status(404).json({ erro: "Item não encontrado." });
+  const { nome, descricao, material, preco, precoAtacado, quantidadeMinima } = req.body || {};
+  if (!nome || !nome.trim()) return res.status(400).json({ erro: "Nome é obrigatório." });
+  alvo.assign({ nome, descricao: descricao || "", material: material || "", preco: preco || "", precoAtacado: precoAtacado || "", quantidadeMinima: quantidadeMinima || "" }).write();
+  res.json(alvo.value());
+});
+
+router.delete("/base-conhecimento/:id", apenasMaster, (req, res) => {
+  db.get("baseConhecimento").remove({ id: req.params.id }).write();
+  res.status(204).end();
 });
 
 module.exports = router;

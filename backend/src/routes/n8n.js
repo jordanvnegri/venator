@@ -86,8 +86,8 @@ router.get("/knowledge-base", (req, res) => {
   const termo = (req.query.query || "").toLowerCase();
   const artigos = db.get("baseConhecimento").value();
   const encontrados = termo
-    ? artigos.filter(
-        (a) => a.titulo.toLowerCase().includes(termo) || a.conteudo.toLowerCase().includes(termo)
+    ? artigos.filter((a) =>
+        [a.nome, a.descricao, a.material].some((campo) => (campo || "").toLowerCase().includes(termo))
       )
     : artigos;
   res.json(encontrados);
